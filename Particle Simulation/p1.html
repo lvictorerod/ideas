@@ -3,248 +3,393 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Particle Simulation</title>
+  <title>Particle Simulation Enhanced</title>
   <style>
     body {
       margin: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
       background-color: #f0f0f0;
       overflow: hidden;
+      font-family: Arial, sans-serif;
     }
-
+    #controlPanel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 8px;
+      z-index: 10;
+    }
+    #controlPanel label {
+      font-size: 14px;
+      margin-right: 5px;
+    }
+    #controlPanel input {
+      margin-bottom: 5px;
+      width: 100%;
+    }
+    #debug {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 10;
+    }
     canvas {
       display: block;
+      margin: auto;
     }
   </style>
 </head>
 <body>
+  <div id="controlPanel">
+    <div>
+      <label for="numDotsInput">Dots:</label>
+      <input type="range" id="numDotsInput" min="100" max="2000" value="1000">
+    </div>
+    <div>
+      <label for="dotSpeedInput">Speed:</label>
+      <input type="range" id="dotSpeedInput" min="0.5" max="5" step="0.1" value="2">
+    </div>
+    <div>
+      <label for="dotSizeInput">Dot Size:</label>
+      <input type="range" id="dotSizeInput" min="1" max="5" step="0.5" value="2">
+    </div>
+    <button id="pauseBtn">Pause</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+  <div id="debug">
+    FPS: <span id="fps">0</span> | Dots: <span id="dotCount">0</span>
+  </div>
   <canvas id="simulationCanvas"></canvas>
   <script>
+    // Canvas setup
     const canvas = document.getElementById('simulationCanvas');
     const ctx = canvas.getContext('2d');
-
-    // Set canvas dimensions
     const hexagonSize = 600;
     canvas.width = hexagonSize;
     canvas.height = hexagonSize;
 
-    // Constants
-    const numDots = 1000;
-    const dotRadius = 2;
-    const restitution = 1;
-    const hexagonRotationSpeed = 0.01;
-    let hexagonAngle = 0;
+    // Control Panel elements
+    const numDotsInput = document.getElementById('numDotsInput');
+    const dotSpeedInput = document.getElementById('dotSpeedInput');
+    const dotSizeInput = document.getElementById('dotSizeInput');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const fpsDisplay = document.getElementById('fps');
+    const dotCountDisplay = document.getElementById('dotCount');
 
-    // Hexagon vertices
-    function getHexagonVertices(size) {
-      const centerX = size / 2;
-      const centerY = size / 2;
-      const radius = size / 2;
+    // Simulation parameters
+    let numDots = parseInt(numDotsInput.value);
+    let dotSpeedFactor = parseFloat(dotSpeedInput.value);
+    let dotRadius = parseFloat(dotSizeInput.value);
+    let pause = false;
+    let lastFrameTime = performance.now();
+    let fps = 0;
+
+    // Hexagon parameters
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+    const hexagonSides = 6;
+    let hexagonRotation = 0;
+    const hexagonRadius = canvas.width / 2 - 20;
+
+    function getHexagonVertices() {
       const vertices = [];
-      for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i - Math.PI / 6;
+      for (let i = 0; i < hexagonSides; i++) {
+        const angle = hexagonRotation + (i * Math.PI * 2) / hexagonSides;
         vertices.push({
-          x: centerX + radius * Math.cos(angle),
-          y: centerY + radius * Math.sin(angle),
+          x: center.x + hexagonRadius * Math.cos(angle),
+          y: center.y + hexagonRadius * Math.sin(angle)
         });
       }
       return vertices;
     }
 
-    let hexagonVertices = getHexagonVertices(hexagonSize);
+    // Quadtree implementation for collision optimization
+    class Quadtree {
+      constructor(boundary, capacity) {
+        this.boundary = boundary;
+        this.capacity = capacity;
+        this.points = [];
+        this.divided = false;
+      }
+      
+      subdivide() {
+        const { x, y, w, h } = this.boundary;
+        const ne = { x: x + w/2, y: y, w: w/2, h: h/2 };
+        const nw = { x: x, y: y, w: w/2, h: h/2 };
+        const se = { x: x + w/2, y: y + h/2, w: w/2, h: h/2 };
+        const sw = { x: x, y: y + h/2, w: w/2, h: h/2 };
+        this.northeast = new Quadtree(ne, this.capacity);
+        this.northwest = new Quadtree(nw, this.capacity);
+        this.southeast = new Quadtree(se, this.capacity);
+        this.southwest = new Quadtree(sw, this.capacity);
+        this.divided = true;
+      }
 
-    // Dot class
+      insert(dot) {
+        if (!this.contains(this.boundary, dot)) return false;
+        if (this.points.length < this.capacity) {
+          this.points.push(dot);
+          return true;
+        }
+        if (!this.divided) this.subdivide();
+        return (this.northeast.insert(dot) || this.northwest.insert(dot) ||
+          this.southeast.insert(dot) || this.southwest.insert(dot));
+      }
+
+      query(range, found) {
+        found = found || [];
+        if (!this.intersects(this.boundary, range)) return found;
+        for (let p of this.points) {
+          if (this.contains(range, p)) {
+            found.push(p);
+          }
+        }
+        if (this.divided) {
+          this.northwest.query(range, found);
+          this.northeast.query(range, found);
+          this.southwest.query(range, found);
+          this.southeast.query(range, found);
+        }
+        return found;
+      }
+
+      contains(rect, dot) {
+        return (dot.x >= rect.x &&
+                dot.x < rect.x + rect.w &&
+                dot.y >= rect.y &&
+                dot.y < rect.y + rect.h);
+      }
+
+      intersects(a, b) {
+        return !(b.x > a.x + a.w ||
+                 b.x + b.w < a.x ||
+                 b.y > a.y + a.h ||
+                 b.y + b.h < a.y);
+      }
+    }
+
+    // Dot class with friction/damping
     class Dot {
       constructor(x, y, vx, vy, color) {
         this.x = x;
         this.y = y;
-        this.vx = vx;
-        this.vy = vy;
+        this.vx = vx * dotSpeedFactor;
+        this.vy = vy * dotSpeedFactor;
         this.color = color;
+        this.mass = 1;
       }
 
       update() {
+        // Apply friction / damping
+        this.vx *= 0.99;
+        this.vy *= 0.99;
         this.x += this.vx;
         this.y += this.vy;
-
-        if (!isPointInHexagon(this.x, this.y)) {
-          let closestEdge = null;
-          let minDistance = Infinity;
-          for (let i = 0, j = hexagonVertices.length - 1; i < hexagonVertices.length; j = i++) {
-            const p1 = hexagonVertices[j];
-            const p2 = hexagonVertices[i];
-            const edgeDistance = pointToLineDistance(this.x, this.y, p1, p2);
-            if (edgeDistance < minDistance) {
-              minDistance = edgeDistance;
-              closestEdge = { p1, p2 };
-            }
-          }
-
-          const edgeVector = {
-            x: closestEdge.p2.x - closestEdge.p1.x,
-            y: closestEdge.p2.y - closestEdge.p1.y,
-          };
-          const edgeNormal = {
-            x: -edgeVector.y,
-            y: edgeVector.x,
-          };
-          const length = Math.sqrt(edgeNormal.x ** 2 + edgeNormal.y ** 2);
-          edgeNormal.x /= length;
-          edgeNormal.y /= length;
-
-          const dotProduct = this.vx * edgeNormal.x + this.vy * edgeNormal.y;
-          this.vx -= 2 * dotProduct * edgeNormal.x;
-          this.vy -= 2 * dotProduct * edgeNormal.y;
-        }
       }
 
       draw() {
         ctx.beginPath();
-        ctx.arc(this.x, this.y, dotRadius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
+        ctx.arc(this.x, this.y, dotRadius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.closePath();
       }
     }
 
-    function getRandomRainbowColor() {
-      const hue = Math.random() * 360;
-      const saturation = 100;
-      const lightness = 50;
-      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    }
+    let dots = [];
 
-    const dots = [];
-    for (let i = 0; i < numDots; i++) {
-      const x = Math.random() * hexagonSize;
-      const y = Math.random() * hexagonSize;
-      const vx = (Math.random() - 0.5) * 2;
-      const vy = (Math.random() - 0.5) * 2;
-      const color = getRandomRainbowColor();
-      dots.push(new Dot(x, y, vx, vy, color));
-    }
-
-    function isPointInHexagon(x, y) {
-      let inside = false;
-      for (let i = 0, j = hexagonVertices.length - 1; i < hexagonVertices.length; j = i++) {
-        const xi = hexagonVertices[i].x, yi = hexagonVertices[i].y;
-        const xj = hexagonVertices[j].x, yj = hexagonVertices[j].y;
-
-        const intersect = ((yi > y) !== (yj > y)) &&
-          (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
+    function initDots() {
+      dots = [];
+      for (let i = 0; i < numDots; i++) {
+        let x = center.x + (Math.random() - 0.5) * hexagonRadius;
+        let y = center.y + (Math.random() - 0.5) * hexagonRadius;
+        let vx = (Math.random() - 0.5) * 2;
+        let vy = (Math.random() - 0.5) * 2;
+        const color = `hsl(${Math.random() * 360}, 80%, 50%)`;
+        dots.push(new Dot(x, y, vx, vy, color));
       }
-      return inside;
     }
+    initDots();
 
-    function pointToLineDistance(px, py, p1, p2) {
-      const A = px - p1.x;
-      const B = py - p1.y;
-      const C = p2.x - p1.x;
-      const D = p2.y - p1.y;
-
-      const dot = A * C + B * D;
-      const lenSq = C * C + D * D;
-      const param = lenSq === 0 ? -1 : dot / lenSq;
-
-      let xx, yy;
-      if (param < 0) {
-        xx = p1.x;
-        yy = p1.y;
-      } else if (param > 1) {
-        xx = p2.x;
-        yy = p2.y;
-      } else {
-        xx = p1.x + param * C;
-        yy = p1.y + param * D;
-      }
-
-      const dx = px - xx;
-      const dy = py - yy;
-      return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    function resolveCollisions() {
-      for (let i = 0; i < dots.length; i++) {
-        for (let j = i + 1; j < dots.length; j++) {
-          const dot1 = dots[i];
-          const dot2 = dots[j];
-
-          const dx = dot2.x - dot1.x;
-          const dy = dot2.y - dot1.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < dotRadius * 2) {
-            const angle = Math.atan2(dy, dx);
-            const sin = Math.sin(angle);
-            const cos = Math.cos(angle);
-
-            const v1 = { x: cos * dot1.vx + sin * dot1.vy, y: cos * dot1.vy - sin * dot1.vx };
-            const v2 = { x: cos * dot2.vx + sin * dot2.vy, y: cos * dot2.vy - sin * dot2.vx };
-
-            const vx1Final = v2.x;
-            const vx2Final = v1.x;
-
-            dot1.vx = cos * vx1Final - sin * v1.y;
-            dot1.vy = sin * vx1Final + cos * v1.y;
-            dot2.vx = cos * vx2Final - sin * v2.y;
-            dot2.vy = sin * vx2Final + cos * v2.y;
-
-            const overlap = dotRadius * 2 - distance;
-            dot1.x -= overlap * (dot1.x - dot2.x) / distance;
-            dot1.y -= overlap * (dot1.y - dot2.y) / distance;
-          }
+    // Check if point is inside hexagon using ray-casting
+    function pointInPolygon(point, vertices) {
+      let collision = false;
+      let next = 0;
+      for (let current = 0; current < vertices.length; current++) {
+        next = current + 1;
+        if (next == vertices.length) next = 0;
+        let vc = vertices[current];
+        let vn = vertices[next];
+        if (((vc.y > point.y && vn.y < point.y) || (vc.y < point.y && vn.y > point.y)) &&
+            (point.x < (vn.x - vc.x) * (point.y - vc.y) / (vn.y - vc.y) + vc.x)) {
+          collision = !collision;
         }
       }
+      return collision;
     }
 
-    function rotateHexagon() {
-      hexagonAngle += hexagonRotationSpeed;
-      hexagonVertices = hexagonVertices.map(vertex => ({
-        x: Math.cos(hexagonAngle) * (vertex.x - hexagonSize / 2) - Math.sin(hexagonAngle) * (vertex.y - hexagonSize / 2) + hexagonSize / 2,
-        y: Math.sin(hexagonAngle) * (vertex.x - hexagonSize / 2) + Math.cos(hexagonAngle) * (vertex.y - hexagonSize / 2) + hexagonSize / 2,
-      }));
+    // Reflect dot velocity when leaving hexagon
+    function reflect(dot, vertices) {
+      // find nearest edge using distances to line segments
+      let minDist = Infinity;
+      let nearestNormal = {x: 0, y: 0};
+      for (let i = 0; i < vertices.length; i++) {
+        let j = (i + 1) % vertices.length;
+        let a = vertices[i], b = vertices[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let mag = Math.hypot(dx, dy);
+        let normal = {x: -dy / mag, y: dx / mag};
+        // distance from point to line
+        let dist = Math.abs(normal.x * (dot.x - a.x) + normal.y * (dot.y - a.y));
+        if (dist < minDist) {
+          minDist = dist;
+          nearestNormal = normal;
+        }
+      }
+      // Reflect velocity vector along the normal
+      let dotProduct = dot.vx * nearestNormal.x + dot.vy * nearestNormal.y;
+      dot.vx = dot.vx - 2 * dotProduct * nearestNormal.x;
+      dot.vy = dot.vy - 2 * dotProduct * nearestNormal.y;
     }
 
+    // Collision handling using quadtree
+    function resolveCollisions() {
+      // Build quadtree covering entire canvas
+      const boundary = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      const qt = new Quadtree(boundary, 4);
+      dots.forEach(dot => qt.insert(dot));
+      
+      dots.forEach(dot => {
+        const range = {
+          x: dot.x - dotRadius*2,
+          y: dot.y - dotRadius*2,
+          w: dotRadius*4,
+          h: dotRadius*4
+        };
+        const others = qt.query(range);
+        others.forEach(other => {
+          if (other !== dot) {
+            const dx = other.x - dot.x;
+            const dy = other.y - dot.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < dotRadius*2 && dist > 0) {
+              // Simple elastic collision impulse
+              const angle = Math.atan2(dy, dx);
+              let targetX = dot.x + Math.cos(angle) * dotRadius*2;
+              let targetY = dot.y + Math.sin(angle) * dotRadius*2;
+              let ax = (targetX - other.x) * 0.5;
+              let ay = (targetY - other.y) * 0.5;
+              dot.vx -= ax;
+              dot.vy -= ay;
+              other.vx += ax;
+              other.vy += ay;
+            }
+          }
+        });
+      });
+    }
+
+    // Update simulation
     function update() {
-      ctx.fillStyle = 'rgba(240, 240, 240, 0.1)';
+      if (pause) {
+        requestAnimationFrame(update);
+        return;
+      }
+      const now = performance.now();
+      fps = Math.round(1000 / (now - lastFrameTime));
+      lastFrameTime = now;
+      fpsDisplay.textContent = fps;
+      dotCountDisplay.textContent = dots.length;
+
+      // Fading trail effect
+      ctx.fillStyle = 'rgba(240,240,240,0.2)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      rotateHexagon();
+      // Rotate hexagon
+      hexagonRotation += 0.002;
+      const vertices = getHexagonVertices();
 
+      // Draw hexagon with gradient stroke and shadow
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, 'rgba(0, 150, 136, 0.7)');
+      grad.addColorStop(1, 'rgba(0, 188, 212, 0.7)');
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.moveTo(hexagonVertices[0].x, hexagonVertices[0].y);
-      for (let i = 1; i < hexagonVertices.length; i++) {
-        ctx.lineTo(hexagonVertices[i].x, hexagonVertices[i].y);
-      }
+      ctx.moveTo(vertices[0].x, vertices[0].y);
+      vertices.forEach((v, i) => {
+        if (i > 0) ctx.lineTo(v.x, v.y);
+      });
       ctx.closePath();
-      ctx.strokeStyle = 'black';
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 4;
       ctx.stroke();
+      ctx.restore();
 
-      for (const dot of dots) {
+      // Update and draw dots
+      dots.forEach(dot => {
         dot.update();
+        if (!pointInPolygon(dot, vertices)) {
+          reflect(dot, vertices);
+        }
         dot.draw();
-      }
+      });
 
+      // Handle collisions using quadtree
       resolveCollisions();
 
       requestAnimationFrame(update);
     }
-
-    canvas.addEventListener('click', function(event) {
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const vx = (Math.random() - 0.5) * 4;
-      const vy = (Math.random() - 0.5) * 4;
-      const color = getRandomRainbowColor();
-      dots.push(new Dot(x, y, vx, vy, color));
-    });
-
     update();
+
+    // Add dot on canvas click/touch
+    function addDot(x, y) {
+      let vx = (Math.random() - 0.5) * 4;
+      let vy = (Math.random() - 0.5) * 4;
+      const color = `hsl(${Math.random() * 360}, 80%, 50%)`;
+      dots.push(new Dot(x, y, vx, vy, color));
+      dotCountDisplay.textContent = dots.length;
+    }
+    canvas.addEventListener('click', function(e) {
+      const rect = canvas.getBoundingClientRect();
+      addDot(e.clientX - rect.left, e.clientY - rect.top);
+    });
+    canvas.addEventListener('touchstart', function(e) {
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      addDot(touch.clientX - rect.left, touch.clientY - rect.top);
+      e.preventDefault();
+    }, {passive:false});
+
+    // UI Controls events
+    numDotsInput.addEventListener('change', () => {
+      numDots = parseInt(numDotsInput.value);
+      initDots();
+    });
+    dotSpeedInput.addEventListener('change', () => {
+      dotSpeedFactor = parseFloat(dotSpeedInput.value);
+      dots.forEach(dot => {
+        dot.vx = Math.sign(dot.vx) * dotSpeedFactor * Math.abs(dot.vx/Math.abs(dot.vx || 1));
+        dot.vy = Math.sign(dot.vy) * dotSpeedFactor * Math.abs(dot.vy/Math.abs(dot.vy || 1));
+      });
+    });
+    dotSizeInput.addEventListener('change', () => {
+      dotRadius = parseFloat(dotSizeInput.value);
+    });
+    pauseBtn.addEventListener('click', () => {
+      pause = !pause;
+      pauseBtn.textContent = pause ? 'Resume' : 'Pause';
+    });
+    resetBtn.addEventListener('click', () => {
+      initDots();
+    });
   </script>
 </body>
 </html>
