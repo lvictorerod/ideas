@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Particle Simulation</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="simulationCanvas"></canvas>
+  <script>
+    const canvas = document.getElementById('simulationCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas dimensions
+    const hexagonSize = 600;
+    canvas.width = hexagonSize;
+    canvas.height = hexagonSize;
+
+    // Constants
+    const numDots = 1000;
+    const dotRadius = 2;
+    const restitution = 1;
+    const hexagonRotationSpeed = 0.01;
+    let hexagonAngle = 0;
+
+    // Hexagon vertices
+    function getHexagonVertices(size) {
+      const centerX = size / 2;
+      const centerY = size / 2;
+      const radius = size / 2;
+      const vertices = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 6;
+        vertices.push({
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle),
+        });
+      }
+      return vertices;
+    }
+
+    let hexagonVertices = getHexagonVertices(hexagonSize);
+
+    // Dot class
+    class Dot {
+      constructor(x, y, vx, vy, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (!isPointInHexagon(this.x, this.y)) {
+          let closestEdge = null;
+          let minDistance = Infinity;
+          for (let i = 0, j = hexagonVertices.length - 1; i < hexagonVertices.length; j = i++) {
+            const p1 = hexagonVertices[j];
+            const p2 = hexagonVertices[i];
+            const edgeDistance = pointToLineDistance(this.x, this.y, p1, p2);
+            if (edgeDistance < minDistance) {
+              minDistance = edgeDistance;
+              closestEdge = { p1, p2 };
+            }
+          }
+
+          const edgeVector = {
+            x: closestEdge.p2.x - closestEdge.p1.x,
+            y: closestEdge.p2.y - closestEdge.p1.y,
+          };
+          const edgeNormal = {
+            x: -edgeVector.y,
+            y: edgeVector.x,
+          };
+          const length = Math.sqrt(edgeNormal.x ** 2 + edgeNormal.y ** 2);
+          edgeNormal.x /= length;
+          edgeNormal.y /= length;
+
+          const dotProduct = this.vx * edgeNormal.x + this.vy * edgeNormal.y;
+          this.vx -= 2 * dotProduct * edgeNormal.x;
+          this.vy -= 2 * dotProduct * edgeNormal.y;
+        }
+      }
+
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, dotRadius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.closePath();
+      }
+    }
+
+    function getRandomRainbowColor() {
+      const hue = Math.random() * 360;
+      const saturation = 100;
+      const lightness = 50;
+      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    }
+
+    const dots = [];
+    for (let i = 0; i < numDots; i++) {
+      const x = Math.random() * hexagonSize;
+      const y = Math.random() * hexagonSize;
+      const vx = (Math.random() - 0.5) * 2;
+      const vy = (Math.random() - 0.5) * 2;
+      const color = getRandomRainbowColor();
+      dots.push(new Dot(x, y, vx, vy, color));
+    }
+
+    function isPointInHexagon(x, y) {
+      let inside = false;
+      for (let i = 0, j = hexagonVertices.length - 1; i < hexagonVertices.length; j = i++) {
+        const xi = hexagonVertices[i].x, yi = hexagonVertices[i].y;
+        const xj = hexagonVertices[j].x, yj = hexagonVertices[j].y;
+
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function pointToLineDistance(px, py, p1, p2) {
+      const A = px - p1.x;
+      const B = py - p1.y;
+      const C = p2.x - p1.x;
+      const D = p2.y - p1.y;
+
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      const param = lenSq === 0 ? -1 : dot / lenSq;
+
+      let xx, yy;
+      if (param < 0) {
+        xx = p1.x;
+        yy = p1.y;
+      } else if (param > 1) {
+        xx = p2.x;
+        yy = p2.y;
+      } else {
+        xx = p1.x + param * C;
+        yy = p1.y + param * D;
+      }
+
+      const dx = px - xx;
+      const dy = py - yy;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function resolveCollisions() {
+      for (let i = 0; i < dots.length; i++) {
+        for (let j = i + 1; j < dots.length; j++) {
+          const dot1 = dots[i];
+          const dot2 = dots[j];
+
+          const dx = dot2.x - dot1.x;
+          const dy = dot2.y - dot1.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < dotRadius * 2) {
+            const angle = Math.atan2(dy, dx);
+            const sin = Math.sin(angle);
+            const cos = Math.cos(angle);
+
+            const v1 = { x: cos * dot1.vx + sin * dot1.vy, y: cos * dot1.vy - sin * dot1.vx };
+            const v2 = { x: cos * dot2.vx + sin * dot2.vy, y: cos * dot2.vy - sin * dot2.vx };
+
+            const vx1Final = v2.x;
+            const vx2Final = v1.x;
+
+            dot1.vx = cos * vx1Final - sin * v1.y;
+            dot1.vy = sin * vx1Final + cos * v1.y;
+            dot2.vx = cos * vx2Final - sin * v2.y;
+            dot2.vy = sin * vx2Final + cos * v2.y;
+
+            const overlap = dotRadius * 2 - distance;
+            dot1.x -= overlap * (dot1.x - dot2.x) / distance;
+            dot1.y -= overlap * (dot1.y - dot2.y) / distance;
+          }
+        }
+      }
+    }
+
+    function rotateHexagon() {
+      hexagonAngle += hexagonRotationSpeed;
+      hexagonVertices = hexagonVertices.map(vertex => ({
+        x: Math.cos(hexagonAngle) * (vertex.x - hexagonSize / 2) - Math.sin(hexagonAngle) * (vertex.y - hexagonSize / 2) + hexagonSize / 2,
+        y: Math.sin(hexagonAngle) * (vertex.x - hexagonSize / 2) + Math.cos(hexagonAngle) * (vertex.y - hexagonSize / 2) + hexagonSize / 2,
+      }));
+    }
+
+    function update() {
+      ctx.fillStyle = 'rgba(240, 240, 240, 0.1)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      rotateHexagon();
+
+      ctx.beginPath();
+      ctx.moveTo(hexagonVertices[0].x, hexagonVertices[0].y);
+      for (let i = 1; i < hexagonVertices.length; i++) {
+        ctx.lineTo(hexagonVertices[i].x, hexagonVertices[i].y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = 'black';
+      ctx.stroke();
+
+      for (const dot of dots) {
+        dot.update();
+        dot.draw();
+      }
+
+      resolveCollisions();
+
+      requestAnimationFrame(update);
+    }
+
+    canvas.addEventListener('click', function(event) {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const vx = (Math.random() - 0.5) * 4;
+      const vy = (Math.random() - 0.5) * 4;
+      const color = getRandomRainbowColor();
+      dots.push(new Dot(x, y, vx, vy, color));
+    });
+
+    update();
+  </script>
+</body>
+</html>
