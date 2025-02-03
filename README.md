@@ -1,2 +1,3 @@
-# ideas
-Ideas in my mind
+# Proyecto Ideas
+Some ideas in my mind...
+
