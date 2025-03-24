@@ -1,3 +1,3 @@
-# Proyecto Ideas
-Some ideas in my mind...
+# Project Ideas
+My Fun Projects.
 
