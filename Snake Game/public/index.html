@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multiplayer Snake Game Mejorado</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #111;
+      color: #fff;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      text-align: center;
+      max-width: 800px;
+      width: 100%;
+      padding: 20px;
+    }
+    h1 {
+      color: #4CAF50;
+      margin-bottom: 30px;
+    }
+    #menu-screen {
+      background-color: #222;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    }
+    #game-screen {
+      display: none;
+    }
+    .input-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input {
+      padding: 10px;
+      width: 100%;
+      max-width: 300px;
+      border: none;
+      border-radius: 5px;
+      background-color: #333;
+      color: #fff;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 30px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #back-button {
+      background-color: #f44336;
+    }
+    #back-button:hover {
+      background-color: #d32f2f;
+    }
+    #game-info {
+      margin-bottom: 20px;
+    }
+    #room-display {
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    #game-canvas {
+      border: 2px solid #333;
+      background-color: #222;
+      margin: 0 auto;
+      display: block;
+    }
+    #scoreboard {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .player-score {
+      padding: 8px 15px;
+      border-radius: 5px;
+      color: white;
+      font-weight: bold;
+    }
+    .instructions {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #aaa;
+    }
+    /* Touch Controls */
+    #touch-controls {
+      display: none;
+      margin-top: 20px;
+    }
+    .touch-row {
+      display: flex;
+      justify-content: center;
+      margin: 5px 0;
+    }
+    #touch-controls button {
+      width: 60px;
+      height: 60px;
+      margin: 5px;
+      font-size: 24px;
+      background-color: #333;
+      color: white;
+      border: none;
+      border-radius: 10px;
+    }
+    /* Game Notifications */
+    .game-notification {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-weight: bold;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    /* Power-up effects */
+    .power-up-speed {
+      animation: pulse 0.5s infinite alternate;
+    }
+    .power-up-invincible {
+      box-shadow: 0 0 10px 5px rgba(0, 255, 0, 0.5);
+    }
+    @keyframes pulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.05); }
+    }
+    @media (max-width: 768px) {
+      #touch-controls {
+        display: block;
+      }
+    }
+  </style>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Menu Screen -->
+    <div id="menu-screen">
+      <h1>Multiplayer Snake Game</h1>
+      <div class="input-group">
+        <label for="player-name">Tu nombre:</label>
+        <input type="text" id="player-name" placeholder="Ingresa tu nombre">
+      </div>
+      <div class="input-group">
+        <label for="room-id">ID de la sala:</label>
+        <input type="text" id="room-id" placeholder="Ingresa ID de la sala o deja en blanco para uno aleatorio">
+      </div>
+      <button id="play-button">Jugar</button>
+      <div class="instructions">
+        <p>Usa las flechas o WASD para mover la serpiente.</p>
+        <p>Comparte el ID de la sala para jugar en conjunto.</p>
+      </div>
+    </div>
+    <!-- Game Screen -->
+    <div id="game-screen">
+      <h1>Multiplayer Snake</h1>
+      <div id="game-info">
+        <p>Sala: <span id="room-display"></span></p>
+        <button id="back-button">Salir del Juego</button>
+      </div>
+      <canvas id="game-canvas"></canvas>
+      <div id="scoreboard"></div>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
